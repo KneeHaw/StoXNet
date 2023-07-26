@@ -42,9 +42,10 @@ class mtj_binarize_stoX(Function):
         ctx.save_for_backward(input_tens, a, b)
         rand_tens = (2 * torch.rand_like(input_tens, device='cuda:0')) - 1
         input_tens_tanh = torch.tanh(4 * input_tens)
-        out = torch.where(input_tens_tanh > rand_tens, 1, -1)
-        # temp = torch.where(out == torch.sign(input_tens), 1, 0)
-        # print(torch.sum(temp)/torch.numel(temp))
+        mask1 = input_tens_tanh > rand_tens
+        mask3 = input_tens == 0
+        out = 1 * mask1.type(torch.float32) + (-1) * (1-mask1.type(torch.float32))
+        out = 0 * mask3.type(torch.float32) + (out) * (1-mask3.type(torch.float32))
         return out
 
     @staticmethod
@@ -52,10 +53,3 @@ class mtj_binarize_stoX(Function):
         input_tens, a, b = ctx.saved_tensors
         grad_input = a * b * (1 - torch.pow(torch.tanh(input_tens * b), 2)) * grad_output
         return grad_input, None, None
-
-
-def stochastic_partial_sum(input_tens):
-    rand_tens = (2 * torch.rand_like(input_tens, device='cuda:0')) - 1
-    input_tens_tanh = torch.tanh(input_tens)
-    out = torch.where(input_tens_tanh > rand_tens, 1, -1)
-    return out

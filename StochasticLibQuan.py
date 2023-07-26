@@ -90,8 +90,8 @@ class KneeHaw_Quan_Conv2d(nn.Conv2d):
         variance = torch.var(tensor, dim=-2).unsqueeze(dim=1)
         mean = torch.mean(tensor, dim=-2).unsqueeze(dim=1)
         output = (tensor - mean) / torch.pow((variance + 0.001), 0.5)
-        output = mtj_binarize_adcless().apply(output, self.alpha, self.beta)
-        # output = mtj_binarize_stoX().apply(output, self.alpha, self.beta)
+        # output = mtj_binarize_adcless().apply(output, self.alpha, self.beta)
+        output = mtj_binarize_stoX().apply(output, self.alpha, self.beta)
         return output
 
     def forward(self, inputs):
