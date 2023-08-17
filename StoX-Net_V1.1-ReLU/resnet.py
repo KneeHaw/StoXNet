@@ -31,7 +31,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-from StochasticLibQuan import KneeHaw_Quan_Conv2d
+from StochasticLibQuan import StoX_Conv2d
 
 __all__ = ['resnet20_1w1a', 'ResNet']
 
@@ -57,9 +57,9 @@ class BasicBlock_1w1a(nn.Module):
 
     def __init__(self, in_planes, planes, stride=1, option='A'):
         super(BasicBlock_1w1a, self).__init__()
-        self.conv1 = KneeHaw_Quan_Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = StoX_Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = KneeHaw_Quan_Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = StoX_Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
@@ -77,13 +77,17 @@ class BasicBlock_1w1a(nn.Module):
     def forward(self, x):
         out = self.bn1(self.conv1(x))
         out += self.shortcut(x)
-        out = F.hardtanh(out)
+        out = F.leaky_relu(out)
         x1 = out
         out = self.bn2(self.conv2(out))
         out += x1
-        out = F.hardtanh(out)
+        out = F.leaky_relu(out)
         return out
 
+    def forwardv2(self, x):
+        out = x1 = F.leaky_relu(self.bn1(self.conv1(x)) + self.shortcut(x))
+        out = F.leaky_relu(self.bn2(self.conv2(out)) + x1)
+        return out
 
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
@@ -110,11 +114,11 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = F.hardtanh(self.bn1(self.conv1(x)))
+        out = F.leaky_relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
-        out = F.avg_pool2d(out, out.size()[3])
+        out = F.max_pool2d(out, out.size()[3])
         out = out.view(out.size(0), -1)
         out = self.bn2(out)
         out = self.linear(out)

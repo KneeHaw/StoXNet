@@ -11,9 +11,10 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import resnet
+import dill
 
 model_names = sorted(name for name in resnet.__dict__
-    if name.islower() and not name.startswith("__")
+                     if name.islower() and not name.startswith("__")
                      and name.startswith("resnet")
                      and callable(resnet.__dict__[name]))
 
@@ -28,7 +29,7 @@ parser.add_argument('--epochs', default=50, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=128, type=int,
+parser.add_argument('-b', '--batch-size', default=128, type=int,  # use different batch sizes
                     metavar='N', help='mini-batch size (default: 128)')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate')
@@ -54,7 +55,7 @@ parser.add_argument('--save-every', dest='save_every',
                     type=int, default=10)
 
 best_prec1 = 0
-
+Log_Vals = open("StoX_Log.txt", 'w')
 
 def main():
     global args, best_prec1
@@ -171,21 +172,21 @@ def main():
         is_best = prec1 > best_prec1
         best_prec1 = max(prec1, best_prec1)
 
-        # if is_best:
-        #     save_checkpoint({
-        #         'model': model,
-        #         'epoch': epoch + 1,
-        #         'state_dict': model.state_dict(),
-        #         'best_prec1': best_prec1,
-        #     }, is_best, filename=os.path.join(args.save_dir, 'IR_Stoch.th'))
+        if is_best:
+            save_checkpoint({
+                'model': model,
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                'best_prec1': best_prec1,
+            }, is_best, filename=os.path.join(args.save_dir, 'StoX50BestEpoch.th'))
         print("Epoch Time: " + str(time.time() - start_epoch))
-
+        Log_Vals.write(str(prec1) + '\n')
     print("Total Time: " + str(time.time() - start_train))
 
     # save_checkpoint({
     #     'state_dict': model.state_dict(),
     #     'best_prec1': best_prec1,
-    # }, is_best, filename=os.path.join(args.save_dir, 'model.th'))
+    # }, is_best, filename=os.path.join(args.save_dir, 'StoX50Epoch.th'))
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
@@ -253,6 +254,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
                       epoch, i, len(train_loader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1))
+    Log_Vals.write(str(epoch+1) + ', ' + str(losses.avg) + ', ' + str(top1.avg) + ', ')
 
 
 def validate(val_loader, model, criterion):
@@ -307,7 +309,7 @@ def validate(val_loader, model, criterion):
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     """Save the training model"""
-    torch.save(state, filename)
+    torch.save(state, filename, pickle_module=dill)
 
 
 class AverageMeter(object):

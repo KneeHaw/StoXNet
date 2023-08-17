@@ -2,25 +2,25 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import time
-from quantizefunctions import QQuantize, mtj_binarize_adcless, mtj_binarize_stoX
+from quantizefunctions import WeightQuantize, InputQuantize, MTJBinarizeStoX, MTJBinarizeADCLess
 
-subarray_dimension = 16
-num_bits = 1
-magic_number = 2 ** (num_bits - 1)
+subarray_dimension = 256
+adc_scalar_status = False
+adc_architecture = True
+adc_MTJ = False
 
-
-class KneeHaw_Quan_Conv2d(nn.Conv2d):
+class StoX_Conv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=None,
                  a_bit=1, w_bit=1):
-        super(KneeHaw_Quan_Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation,
-                                                 groups, bias)
+        super(StoX_Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation,
+                                          groups, bias)
         self.a_bit = a_bit
         self.w_bit = w_bit
         self.k = torch.tensor([10]).float().cuda()
         self.t = torch.tensor([0.1]).float().cuda()
         self.alpha = torch.tensor([10]).float().cuda()
         self.beta = torch.tensor([0.1]).float().cuda()
+        self.ADCLess_scalar = torch.randn(1, requires_grad=True).cuda()
 
     def conv_ADC_Less_v3_quan(self, image_map, filter_weights, bias, stride, padding, dilation, groups):
         kernel_width = filter_weights.size(dim=-1)
@@ -37,7 +37,10 @@ class KneeHaw_Quan_Conv2d(nn.Conv2d):
         for i in range(len(kernel_list)):
             working_weight = weight_list[i]
             working_kernel = kernel_list[i].transpose(-2, -1)
-            output += self.mtj_instance(F.linear(working_kernel, working_weight).transpose(1, 2))
+            if adc_scalar_status:
+                output += self.ADCLess_scalar * (self.mtj_instance(F.linear(working_kernel, working_weight).transpose(1, 2)) / num_chunks)
+            else:
+                output += self.mtj_instance(F.linear(working_kernel, working_weight).transpose(1, 2)) / num_chunks
 
         out_pixels = int(kernels.size(dim=-1) ** 0.5)
         result = F.fold(output, (out_pixels, out_pixels), (1, 1))
@@ -62,8 +65,10 @@ class KneeHaw_Quan_Conv2d(nn.Conv2d):
         for i in range(len(weight_list)):
             working_weight = weight_list[i].transpose(-1, -2)
             working_kernel = kernel_list[i].transpose(-1, -2)
-            output += self.mtj_instance(F.linear(working_kernel, working_weight).transpose(-1, -2)) / num_chunks
-        # output = quantized_representation(output, resolution=len(weight_list))
+            if adc_scalar_status:
+                output += self.ADCLess_scalar * (self.mtj_instance(F.linear(working_kernel, working_weight).transpose(1, 2)) / num_chunks)
+            else:
+                output += self.mtj_instance(F.linear(working_kernel, working_weight).transpose(-1, -2)) / num_chunks
 
         out_pixels = int(output.size(-1) ** 0.5)
         output = F.fold(output, (out_pixels, out_pixels), (1, 1))
@@ -90,8 +95,10 @@ class KneeHaw_Quan_Conv2d(nn.Conv2d):
         variance = torch.var(tensor, dim=-2).unsqueeze(dim=1)
         mean = torch.mean(tensor, dim=-2).unsqueeze(dim=1)
         output = (tensor - mean) / torch.pow((variance + 0.001), 0.5)
-        # output = mtj_binarize_adcless().apply(output, self.alpha, self.beta)
-        output = mtj_binarize_stoX().apply(output, self.alpha, self.beta)
+        if adc_MTJ:
+            output = MTJBinarizeADCLess().apply(output, self.alpha, self.beta)
+        else:
+            output = MTJBinarizeStoX().apply(output, self.alpha, self.beta)
         return output
 
     def forward(self, inputs):
@@ -103,10 +110,13 @@ class KneeHaw_Quan_Conv2d(nn.Conv2d):
                        (torch.log(bw.abs().view(bw.size(0), -1).mean(-1)) / math.log(2)).round().float()).view(
             bw.size(0), 1, 1, 1).detach().cuda()
 
-        qw = QQuantize().apply(bw, self.k, self.t).cuda()
+        qw = WeightQuantize().apply(bw, self.k, self.t).cuda()
         qw = qw * sw
-        qa = QQuantize().apply(a, self.k, self.t).cuda()
+        qa = InputQuantize().apply(a, self.k, self.t).cuda()
 
-        output = self.conv_samba_v1_quan(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups).cuda()
+        if adc_architecture:
+            output = self.conv_ADC_Less_v3_quan(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups).cuda()
+        else:
+            output = self.conv_samba_v1_quan(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups).cuda()
         return output
 
