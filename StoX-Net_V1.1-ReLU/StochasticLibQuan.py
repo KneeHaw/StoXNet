@@ -32,7 +32,6 @@ class StoX_Conv2d(nn.Conv2d):
         num_chunks = (kernels.size(1) / subarray_dimension).__ceil__()
         kernel_list = torch.chunk(kernels, chunks=num_chunks, dim=1)
         weight_list = torch.chunk(flattened_weights, chunks=num_chunks, dim=1)
-
         output = 0
         for i in range(len(kernel_list)):
             working_weight = weight_list[i]
@@ -108,15 +107,15 @@ class StoX_Conv2d(nn.Conv2d):
         bw = bw / bw.view(bw.size(0), -1).std(-1).view(bw.size(0), 1, 1, 1)
         sw = torch.pow(torch.tensor([2] * bw.size(0)).cuda().float(),
                        (torch.log(bw.abs().view(bw.size(0), -1).mean(-1)) / math.log(2)).round().float()).view(
-            bw.size(0), 1, 1, 1).detach().cuda()
+            bw.size(0), 1, 1, 1).detach()
 
-        qw = WeightQuantize().apply(bw, self.k, self.t).cuda()
+        qw = WeightQuantize().apply(bw, self.k, self.t)
         qw = qw * sw
-        qa = InputQuantize().apply(a, self.k, self.t).cuda()
+        qa = InputQuantize().apply(a, self.k, self.t)
 
         if adc_architecture:
-            output = self.conv_ADC_Less_v3_quan(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups).cuda()
+            output = self.conv_ADC_Less_v3_quan(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups)
         else:
-            output = self.conv_samba_v1_quan(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups).cuda()
+            output = self.conv_samba_v1_quan(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups)
         return output
 
