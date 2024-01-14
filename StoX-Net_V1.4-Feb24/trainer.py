@@ -8,12 +8,14 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
 import resnet
-import resnet18
 import dill
-from utilities import get_loaders
 
 os.environ['CUDA_VISIBLE_DEVICES'] = "0"
+# os.environ['NCCL_DEBUG'] = "INFO"
+# os.environ['NCCL_IB_DISABLE'] = "1"
 
 model_names = sorted(name for name in resnet.__dict__
                      if name.islower() and not name.startswith("__")
@@ -27,7 +29,7 @@ parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20_1w1a',
                     ' (default: resnet32)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=50, type=int, metavar='N',
+parser.add_argument('--epochs', default=20, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -39,9 +41,9 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
-parser.add_argument('--print-freq', '-p', default=1, type=int,
+parser.add_argument('--print-freq', '-p', default=100, type=int,
                     metavar='N', help='print frequency (default: 20)')
-parser.add_argument('--resume', default='./saved_models/PaperModel9_4w4a_4s_1slice.th', type=str, metavar='PATH',  # ./save_temp/StoX400BestEpoch_4w4a_AdaptTS1_NoSplit.th
+parser.add_argument('--resume', default='', type=str, metavar='PATH',  # ./save_temp/StoX400BestEpoch_4w4a_AdaptTS1_NoSplit.th
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', default=False,
                     type=bool, help='evaluate model on validation set')
@@ -55,7 +57,7 @@ parser.add_argument('--save-dir', dest='save_dir',
 parser.add_argument('--save-every', dest='save_every',
                     help='Saves checkpoints at every specified number of epochs',
                     type=int, default=10)
-parser.add_argument('--mtj-samples', default=1, type=int, metavar='N',
+parser.add_argument('--max-time-steps', default=1, type=int, metavar='N',
                     help='Maximum time steps for each MTJ (default: 1)')
 parser.add_argument('--max-ab', default=4, type=int, metavar='N',
                     help='Denotes maximum number of activation bits (default: 1)')
@@ -68,27 +70,20 @@ save_name = 'test.th'
 
 
 def main():
+    print("Entering Model")
+    start_time = time.time()
+
     global args, best_prec1
     args = parser.parse_args()
-
-    dataset = 'CIFAR10'
-    # dataset = 'CIFAR100'
-    # dataset = 'tiny_imagenet'
-    if dataset == 'CIFAR10':
-        this_model = resnet.resnet20_1w1a(abits=args.max_ab, wbits=args.max_wb)
-    elif dataset == 'CIFAR100':
-        this_model = resnet18.ResNet(num_classes=100)
-    elif dataset == 'tiny_imagenet':
-        this_model = resnet18.ResNet(num_classes=200, abits=args.max_ab, wbits=args.max_wb)
-    else:
-        raise ValueError("Incompatible Dataset")
 
     # Check the save_dir exists or not
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    model = torch.nn.DataParallel(this_model)
-    model.cuda()
+    print(f"Time for args: {time.time() - start_time}")
+
+    model = torch.nn.DataParallel(resnet.resnet20_1w1a(abits=args.max_ab, wbits=args.max_wb))
+    model.to('cuda')
 
     # optionally resume from a checkpoint
     if args.resume and args.evaluate:
@@ -102,11 +97,51 @@ def main():
                   .format(args.evaluate, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-            exit()
 
     cudnn.benchmark = False
 
-    train_loader, val_loader = get_loaders(dataset, args.batch_size, args.workers)
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+
+    # train_loader = torch.utils.data.DataLoader(
+    #     datasets.CIFAR10(root='./data', train=True, transform=transforms.Compose([
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.RandomCrop(32, 4),
+    #         transforms.ToTensor(),
+    #         normalize,
+    #     ]), download=False),
+    #     batch_size=args.batch_size, shuffle=True,
+    #     num_workers=args.workers, pin_memory=True, drop_last=True)
+    #
+    # val_loader = torch.utils.data.DataLoader(
+    #     datasets.CIFAR10(root='./data', train=False, transform=transforms.Compose([
+    #         transforms.ToTensor(),
+    #         normalize,
+    #     ])),
+    #     batch_size=args.batch_size, shuffle=False,
+    #     num_workers=args.workers, pin_memory=True, drop_last=True)
+
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('./MNIST_Data', train=True, download=True,
+                                   transform=transforms.Compose([
+                                       transforms.RandomHorizontalFlip(),
+                                       transforms.RandomCrop(28, 4),
+                                       transforms.ToTensor(),
+                                       transforms.Normalize(
+                                           (0.1307,), (0.3081,))
+                                   ])),
+        batch_size=args.batch_size, shuffle=True)
+
+    val_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('./MNIST_Data', train=False, download=True,
+                                   transform=transforms.Compose([
+                                       transforms.ToTensor(),
+                                       transforms.Normalize(
+                                           (0.1307,), (0.3081,))
+                                   ])),
+        batch_size=args.batch_size, shuffle=False)
+
+    print(f"Time to load: {time.time()-start_time}")
     # define loss function (criterion) and pptimizer
     criterion = nn.CrossEntropyLoss().cuda()
 
@@ -120,29 +155,54 @@ def main():
 
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=0, last_epoch=-1)
 
-    T_min, T_max = 1e-3, 1e1
+    if args.arch in ['resnet1202', 'resnet110']:
+        # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
+        # then switch back. In this implementation it will correspond for first epoch.
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = args.lr*0.1
 
+
+    T_min, T_max = 1e-3, 1e1
+    #new logUp
     def Log_UP(t_min, t_max, epoch):
         return torch.tensor([t_min * math.pow(10, (math.log(t_max / t_min, 10) * (1.25 * ((epoch + 1) / args.epochs))))]).float().cuda()
-
+    print(f"Time to setup helpers: {time.time()-start_time}")
     print(model.module)
     start_train = time.time()
 
-    if dataset == 'CIFAR10':
-        time_steps = [args.mtj_samples] * 18
-        model.module.conv1.iterations = 8
-        model.module.conv1.a_bits = 4
-        model.module.conv1.w_bits = 4
+    # ---------- Begin Importance Analysis ----------
+    time_steps = [args.max_time_steps] * 18
+    model.module.conv1.iterations = 1
+    model.module.conv1.a_bits = 4
+    model.module.conv1.w_bits = 4
 
-        for i in range(3):
-            model.module.layer1[i].conv1.iterations = max(time_steps[0 + (i * 6)], 1)
-            model.module.layer1[i].conv2.iterations = max(time_steps[1 + (i * 6)], 1)
-            model.module.layer2[i].conv1.iterations = max(time_steps[2 + (i * 6)], 1)
-            model.module.layer2[i].conv2.iterations = max(time_steps[3 + (i * 6)], 1)
-            model.module.layer3[i].conv1.iterations = max(time_steps[4 + (i * 6)], 1)
-            model.module.layer3[i].conv2.iterations = max(time_steps[5 + (i * 6)], 1)
-        print("MTJ Samples: " + str(time_steps), '\n', "A Bits: " + str(args.max_ab), '\n', "W Bits: " + str(args.max_wb))
+    for i in range(3):
+        model.module.layer1[i].conv1.iterations = max(time_steps[0 + (i * 6)], 1)
+        model.module.layer1[i].conv2.iterations = max(time_steps[1 + (i * 6)], 1)
+        model.module.layer2[i].conv1.iterations = max(time_steps[2 + (i * 6)], 1)
+        model.module.layer2[i].conv2.iterations = max(time_steps[3 + (i * 6)], 1)
+        model.module.layer3[i].conv1.iterations = max(time_steps[4 + (i * 6)], 1)
+        model.module.layer3[i].conv2.iterations = max(time_steps[5 + (i * 6)], 1)
 
+        model.module.layer1[i].conv1.a_bits = args.max_ab
+        model.module.layer1[i].conv2.a_bits = args.max_ab
+        model.module.layer2[i].conv1.a_bits = args.max_ab
+        model.module.layer2[i].conv2.a_bits = args.max_ab
+        model.module.layer3[i].conv1.a_bits = args.max_ab
+        model.module.layer3[i].conv2.a_bits = args.max_ab
+
+        model.module.layer1[i].conv1.w_bits = args.max_wb
+        model.module.layer1[i].conv2.w_bits = args.max_wb
+        model.module.layer2[i].conv1.w_bits = args.max_wb
+        model.module.layer2[i].conv2.w_bits = args.max_wb
+        model.module.layer3[i].conv1.w_bits = args.max_wb
+        model.module.layer3[i].conv2.w_bits = args.max_wb
+    # ---------- End Importance Analysis ----------
+
+    # train for one epoch
+    print("MTJ Samples: " + str(time_steps), '\n', "A Bits: " + str(args.max_ab), '\n', "W Bits: " + str(args.max_wb))
+
+    print(f"Time to Start: {time.time()-start_time}")
     for epoch in range(args.start_epoch, args.epochs):
         start_epoch = time.time()
         t = Log_UP(T_min, T_max, epoch)
@@ -151,6 +211,8 @@ def main():
         else:
             k = torch.tensor([1]).float().cuda()
 
+        # model.module.conv1.k = k
+        # model.module.conv1.t = t
         # layer_importance = []
         for i in range(3):
 
@@ -170,7 +232,7 @@ def main():
             model.module.layer3[i].conv2.k = k
             model.module.layer3[i].conv1.t = t
             model.module.layer3[i].conv2.t = t
-            # layer_importance.extend([model.module.layer3[i].importance1.item(), model.module.layer3[i].importance2.item()])
+#             layer_importance.extend([model.module.layer3[i].importance1.item(), model.module.layer3[i].importance2.item()])
 
         # print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
 
@@ -198,6 +260,11 @@ def main():
         print("Epoch Time: " + str(time.time() - start_epoch))
         Log_Vals.write(str(prec1) + '\n')
     print("Total Time: " + str(time.time() - start_train))
+
+    # save_checkpoint({
+    #     'state_dict': model.state_dict(),
+    #     'best_prec1': best_prec1,
+    # }, is_best, filename=os.path.join(args.save_dir, 'StoX50Epoch.th'))
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
@@ -360,4 +427,5 @@ def accuracy(output, target, topk=(1,)):
 
 if __name__ == '__main__':
     # with torch.autograd.detect_anomaly():
+    # torch.cuda.memory._record_memory_history()
     main()
