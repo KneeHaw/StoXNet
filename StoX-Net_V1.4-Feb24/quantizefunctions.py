@@ -19,7 +19,7 @@ def quantize_STE_floor_ceil(input_tens, bits):
 
 def quantize_STE_ceil(input_tens, bits):
     ceil = torch.ceil(input_tens).clamp(0, 2 ** bits - 1)
-    out = torch.where(input_tens == 0, 0, ceil)
+    out = torch.where(input_tens == 0, 0, ceil) / (2 ** bits - 1)
     return out
 
 
@@ -27,7 +27,7 @@ class WeightQuantize(Function):
     @staticmethod
     def forward(ctx, input_tens, k, t, bits):
         ctx.save_for_backward(input_tens, k, t)
-        magic_number_weights = 2 ** (bits-1)
+        magic_number_weights = torch.tensor(2 ** (bits-1), device='cuda')
         out = input_tens * magic_number_weights
         if bits > 1:
             out = out.round()
