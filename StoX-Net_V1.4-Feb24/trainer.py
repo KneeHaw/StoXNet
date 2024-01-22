@@ -11,60 +11,10 @@ import torch.utils.data
 import resnet
 import utilities
 import dill
+import argsparser
 
 os.environ['CUDA_VISIBLE_DEVICES'] = "0"
-# os.environ['NCCL_DEBUG'] = "INFO"
-# os.environ['NCCL_IB_DISABLE'] = "1"
-
-model_names = sorted(name for name in resnet.__dict__
-                     if name.islower() and not name.startswith("__")
-                     and name.startswith("resnet")
-                     and callable(resnet.__dict__[name]))
-
-parser = argparse.ArgumentParser(description='Property ResNets for CIFAR10 in pytorch')
-parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20_1w1a',
-                    choices=model_names,
-                    help='model architecture: ' + ' | '.join(model_names) +
-                    ' (default: resnet32)')
-parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
-                    help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=10, type=int, metavar='N',
-                    help='number of total epochs to run')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-                    help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,  # use different batch sizes
-                    metavar='N', help='mini-batch size (default: 128)')
-parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
-                    metavar='LR', help='initial learning rate')
-parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
-                    help='momentum')
-parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
-                    metavar='W', help='weight decay (default: 1e-4)')
-parser.add_argument('--print-freq', '-p', default=1, type=int,
-                    metavar='N', help='print frequency (default: 20)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH',  # ./save_temp/StoX400BestEpoch_4w4a_AdaptTS1_NoSplit.th
-                    help='path to latest checkpoint (default: none)')
-parser.add_argument('-e', '--evaluate', dest='evaluate', default=False,
-                    type=bool, help='evaluate model on validation set')
-parser.add_argument('--pretrained', dest='pretrained', action='store_true',
-                    help='use pre-trained model')
-parser.add_argument('--half', dest='half', action='store_true',
-                    help='use half-precision(16-bit) ')
-parser.add_argument('--save-dir', dest='save_dir',
-                    help='The directory used to save the trained models',
-                    default='saved_models', type=str)
-parser.add_argument('--save-every', dest='save_every',
-                    help='Saves checkpoints at every specified number of epochs',
-                    type=int, default=10)
-parser.add_argument('--max-time-steps', default=1, type=int, metavar='N',
-                    help='Maximum time steps for each MTJ (default: 1)')
-parser.add_argument('--max-ab', default=1, type=int, metavar='N',
-                    help='Denotes maximum number of activation bits (default: 1)')
-parser.add_argument('--max-wb', default=1, type=int, metavar='N',
-                    help='Denotes maximum number of weight bits (default: 1)')
-parser.add_argument('--dataset', dest='dataset', help='Choose a dataset to run the network on from'
-                                                      '{MNIST, CIFAR10, CIFAR100, tiny_imagenet}', default='MNIST', type=str)
-
+parser = argsparser.get_parser()
 best_prec1 = 0
 Log_Vals = open("./saved_logs/test.txt", 'w')
 save_name = 'test.th'
@@ -80,11 +30,11 @@ def main():
     # Check the save_dir exists or not
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
-
     print(f"Time for args: {time.time() - start_time}")
 
-    model = torch.nn.DataParallel(resnet.resnet20_1w1a(abits=args.max_ab, wbits=args.max_wb))
-    model.to('cuda')
+    model = resnet.resnet20_1w1a(args.num_ab, args.num_ab, args.ab_sw, args.wb_sw, args.subarray_size, args.time_steps)
+    model.to("cuda")
+    print(f"Model Loaded: {time.time()-start_time}")
 
     # optionally resume from a checkpoint
     if args.resume and args.evaluate:
@@ -101,8 +51,8 @@ def main():
 
     cudnn.benchmark = False
 
+    print(f"Loading Data: {time.time()-start_time}")
     train_loader, val_loader = utilities.get_loaders(dataset=args.dataset, batch_size=args.batch_size, workers=4)
-
     print(f"Time to load: {time.time()-start_time}")
 
     # define loss function (criterion) and optimizer
@@ -128,41 +78,12 @@ def main():
 
     def Log_UP(t_min, t_max, epoch):
         return torch.tensor([t_min * math.pow(10, (math.log(t_max / t_min, 10) * (1.25 * ((epoch + 1) / args.epochs))))]).float().cuda()
+
     print(f"Time to setup helpers: {time.time()-start_time}")
-    print(model.module) # Print all model components/layers
+    print(model.modules)  # Print all model components/layers
     start_train = time.time()
 
-    # ---------- Begin Time-Steps and Bit-Width Settings Analysis ----------
-    time_steps = [args.max_time_steps] * 18
-    model.module.conv1.iterations = 1
-    model.module.conv1.a_bits = 4
-    model.module.conv1.w_bits = 4
-
-    for i in range(3):
-        model.module.layer1[i].conv1.iterations = max(time_steps[0 + (i * 6)], 1)
-        model.module.layer1[i].conv2.iterations = max(time_steps[1 + (i * 6)], 1)
-        model.module.layer2[i].conv1.iterations = max(time_steps[2 + (i * 6)], 1)
-        model.module.layer2[i].conv2.iterations = max(time_steps[3 + (i * 6)], 1)
-        model.module.layer3[i].conv1.iterations = max(time_steps[4 + (i * 6)], 1)
-        model.module.layer3[i].conv2.iterations = max(time_steps[5 + (i * 6)], 1)
-
-        model.module.layer1[i].conv1.a_bits = args.max_ab
-        model.module.layer1[i].conv2.a_bits = args.max_ab
-        model.module.layer2[i].conv1.a_bits = args.max_ab
-        model.module.layer2[i].conv2.a_bits = args.max_ab
-        model.module.layer3[i].conv1.a_bits = args.max_ab
-        model.module.layer3[i].conv2.a_bits = args.max_ab
-
-        model.module.layer1[i].conv1.w_bits = args.max_wb
-        model.module.layer1[i].conv2.w_bits = args.max_wb
-        model.module.layer2[i].conv1.w_bits = args.max_wb
-        model.module.layer2[i].conv2.w_bits = args.max_wb
-        model.module.layer3[i].conv1.w_bits = args.max_wb
-        model.module.layer3[i].conv2.w_bits = args.max_wb
-    # ---------- End Time-Steps and Bit-Width Settings Analysis ----------
-
     # train for one epoch
-    print("MTJ Samples: " + str(time_steps), '\n', "A Bits: " + str(args.max_ab), '\n', "W Bits: " + str(args.max_wb))
     print(f"Time to Start: {time.time()-start_time}")
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -174,20 +95,20 @@ def main():
             k = torch.tensor([1]).float().cuda()
 
         for i in range(3):
-            model.module.layer1[i].conv1.k = k
-            model.module.layer1[i].conv2.k = k
-            model.module.layer1[i].conv1.t = t
-            model.module.layer1[i].conv2.t = t
+            model.layer1[i].conv1.k = k
+            model.layer1[i].conv2.k = k
+            model.layer1[i].conv1.t = t
+            model.layer1[i].conv2.t = t
 
-            model.module.layer2[i].conv1.k = k
-            model.module.layer2[i].conv2.k = k
-            model.module.layer2[i].conv1.t = t
-            model.module.layer2[i].conv2.t = t
+            model.layer2[i].conv1.k = k
+            model.layer2[i].conv2.k = k
+            model.layer2[i].conv1.t = t
+            model.layer2[i].conv2.t = t
 
-            model.module.layer3[i].conv1.k = k
-            model.module.layer3[i].conv2.k = k
-            model.module.layer3[i].conv1.t = t
-            model.module.layer3[i].conv2.t = t
+            model.layer3[i].conv1.k = k
+            model.layer3[i].conv2.k = k
+            model.layer3[i].conv1.t = t
+            model.layer3[i].conv2.t = t
 
         print('current lr {:.5e}'.format(optimizer.param_groups[0]['lr']))
 
@@ -240,8 +161,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
         data_time.update(time.time() - end)
 
         target = target.cuda()
-        input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+        input_var = torch.autograd.Variable(input.cuda())
+        target_var = torch.autograd.Variable(target.cuda())
         if args.half:
             input_var = input_var.half()
 
@@ -254,13 +175,13 @@ def train(train_loader, model, criterion, optimizer, epoch):
         loss.backward()
         optimizer.step()
 
-        output = output.float()
+        # output = output.float()
         loss = loss.float()
 
         # measure accuracy and record loss
-        prec1 = accuracy(output.data, target)[0]
+        # prec1 = accuracy(output.data, target)[0]
         losses.update(loss.item(), input.size(0))
-        top1.update(prec1.item(), input.size(0))
+        # top1.update(prec1.item(), input.size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -272,7 +193,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                      epoch, i, len(train_loader), batch_time=batch_time,
+                      epoch+1, i+1, len(train_loader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1))
     Log_Vals.write(str(epoch+1) + ', ' + str(losses.avg) + ', ' + str(top1.avg) + ', ')
 
@@ -291,8 +212,8 @@ def validate(val_loader, model, criterion):
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda()
         with torch.no_grad():
-            input_var = torch.autograd.Variable(input)
-            target_var = torch.autograd.Variable(target)
+            input_var = torch.autograd.Variable(input.cuda())
+            target_var = torch.autograd.Variable(target.cuda())
 
         # if args.half:
         #     input_var = input_var.half()
@@ -359,5 +280,4 @@ def accuracy(output, target, topk=(1,)):
 
 
 if __name__ == '__main__':
-    # with torch.autograd.detect_anomaly():
     main()

@@ -56,13 +56,13 @@ class LambdaLayer(nn.Module):
 class BasicBlock_StoX(nn.Module):
     expansion = 1
 
-    def __init__(self, in_planes, planes, stride=1, abits=torch.tensor(4), wbits=torch.tensor(4)):
+    def __init__(self, in_planes, planes, stox_params, stride=1):
         super(BasicBlock_StoX, self).__init__()
         self.importance1 = nn.Parameter(torch.ones(1))
         self.importance2 = nn.Parameter(torch.ones(1))
-        self.conv1 = StoX_Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False, a_bits=abits, w_bits=wbits)
+        self.conv1 = StoX_Conv2d(in_planes, planes, stox_params, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = StoX_Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False, a_bits=abits, w_bits=wbits)
+        self.conv2 = StoX_Conv2d(planes, planes, stox_params, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
@@ -82,25 +82,25 @@ class BasicBlock_StoX(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, abits, wbits, num_classes=10):
+    def __init__(self, block, num_blocks, stox_params, num_classes=10):
         super(ResNet, self).__init__()
         self.in_planes = 16
-        # self.conv1 = StoX_Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=False, a_bits=abits, w_bits=wbits)
+        # self.conv1 = StoX_Conv2d(1, 16, stox_params, kernel_size=3, stride=1, padding=1, bias=False, a_bits=abits, w_bits=wbits)
         self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
-        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stox_params, stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stox_params, stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stox_params, stride=2)
         self.bn2 = nn.BatchNorm1d(64)
         self.linear = nn.Linear(64, num_classes)
 
         self.apply(_weights_init)
 
-    def _make_layer(self, block, planes, num_blocks, stride):
+    def _make_layer(self, block, planes, num_blocks, stox_params, stride):
         strides = [stride] + [1]*(num_blocks-1)
         layers = []
         for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
+            layers.append(block(self.in_planes, planes, stox_params, stride))
             self.in_planes = planes * block.expansion
 
         return nn.Sequential(*layers)
@@ -119,8 +119,8 @@ class ResNet(nn.Module):
         return out
 
 
-def resnet20_1w1a(abits, wbits):
-    return ResNet(BasicBlock_StoX, [3, 3, 3], abits, wbits)
+def resnet20_1w1a(a_bits, w_bits, a_stream_width, w_slice_width, subarray_size, time_steps):
+    return ResNet(BasicBlock_StoX, [3, 3, 3], stox_params=[a_bits, w_bits, a_stream_width, w_slice_width, subarray_size, time_steps])
 
 
 def test(net):

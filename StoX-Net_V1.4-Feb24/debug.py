@@ -67,6 +67,3 @@ def plot_tensor_hist(tensor):
 def plot_tensor_plot(tensorx, tensory):
     plt.plot(tensorx.detach().cpu().flatten().squeeze().numpy(), tensory.detach().cpu().flatten().squeeze().numpy())
     plt.show()
-
-# if __name__ == '__main__':
-

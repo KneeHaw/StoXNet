@@ -20,34 +20,25 @@ class StoX_MTJ(nn.Module):
         # self.scalar = nn.Parameter(torch.tensor(4., device='cuda'), requires_grad=True)
 
     def forward(self, input_tens):
-        # update_txt(tensor_stats(tensor), './raw_tens.txt')
-        # normed_input = (8 * (input_tens - input_tens.min()) / (input_tens.max() - input_tens.min()) - 4)
         normed_input = self.bn(input_tens)
-        # # update_txt(tensor_stats(output), './norm_tens.txt')
-
-        # Add in sensitivity scalar (a * normed_input)
-        # input_tens_tanh = torch.tanh(normed_input)
-        # rand_tens = ((2 * torch.rand_like(input_tens_tanh, device='cuda:0')) - 1)
-        # mask1 = input_tens_tanh > rand_tens
-        # mask3 = input_tens == 0
-        # # out = 1 * (mask1.type(torch.float32)) + -1 * (1 - mask1.type(torch.float32))
-        # out = 1 * (mask1.type(torch.float32))
-        # out = 0 * mask3.type(torch.float32) + out * (1 - mask3.type(torch.float32))
-        out = torch.sign(normed_input).detach() + normed_input - normed_input.detach()
+        out = MTJInstance().apply(normed_input, 4)
         return out
 
 
 class StoX_Conv2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=None,
-                 a_bits=4, w_bits=4):
+    def __init__(self, in_channels, out_channels, stox_params, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=None):
         super(StoX_Conv2d, self).__init__()
+        # StoX_Params order -> [a_bits, w_bits, a_stream_width, w_slice_width, subarray_size, time_steps]
+
         # The class needs all of these parameters to simulate convolutions.
-        self.w_bits = w_bits
-        self.w_bits_per_slice = w_bits
+        self.w_bits = stox_params[1]
+        self.w_bits_per_slice = stox_params[3]
         self.w_slices = int(self.w_bits / self.w_bits_per_slice)
-        self.a_bits = a_bits
-        self.a_bits_per_stream = a_bits
+
+        self.a_bits = stox_params[0]
+        self.a_bits_per_stream = stox_params[2]
         self.a_slices = int(self.a_bits / self.a_bits_per_stream)
+
         self.stride = (stride, stride)
         self.padding = (padding, padding)
         self.dilation = (dilation, dilation)
@@ -56,12 +47,12 @@ class StoX_Conv2d(nn.Module):
         self.k = torch.tensor(1)
         self.t = torch.tensor(1)
         self.kernel_size = kernel_size
-        self.iterations = torch.tensor(1)
-        self.num_chunks = get_chunks(in_channels, subarray_dimension)
+        self.iterations = stox_params[5]
+        self.num_chunks = get_chunks(in_channels, stox_params[4])
 
         # Initialize weights according to number of slices and channels.
         # Every slice will distribute base 2 weighting.
-        # Given 4bit weight, 2 slices would be 2bits each with the smaller being 0 1 2 3 and the larger being 0 4 8 12.
+        # Given 4bit weight, 2 slices would be 2bits each with the smaller being [0, 1, 2, 3] and the larger being [0, 4, 8, 12].
         self.weight = nn.Parameter(torch.empty(out_channels * self.w_slices, in_channels, kernel_size, kernel_size))
         nn.init.kaiming_normal_(self.weight)
 
@@ -83,11 +74,13 @@ class StoX_Conv2d(nn.Module):
                 linear_temp = F.linear(working_kernel, working_weight).transpose(1, 2)
                 output += self.MTJ(linear_temp)
 
-        output = output / self.num_chunks / self.iterations
-
+        # output = output / self.num_chunks / self.iterations
+        output = output
         # Generate LSB to MSB vectors for S&A
-        # output = gen_weight_vector_and_sum(output, bits=self.w_slices)
-        # output = gen_image_vector_and_sum(output, self.a_bits)
+        if self.w_slices > 1:
+            output = gen_weight_vector_and_sum(output, bits=self.w_slices)
+        if self.a_slices > 1:
+            output = gen_image_vector_and_sum(output, self.a_bits)
 
         out_pixels = int((output.size(dim=-1)) ** 0.5)  # Image size to map back to
         result = F.fold(output, (out_pixels, out_pixels), (1, 1))  # Fold result into image
@@ -97,12 +90,8 @@ class StoX_Conv2d(nn.Module):
         # Size = [out_channels, in_channels, kernel_height, kernel_width]
         # [MSB . . . LSB]
         w = self.weight
-        # Normalize the weights --- usually from about (-.5, .5) to (-4, 4), promote confident weights!
-        # w and bw are uni-modal around 0, slightly favoring negative at initialization?
         bw = w - w.view(w.size(0), -1).mean(-1).view(w.size(0), 1, 1, 1)
         bw = bw / bw.view(bw.size(0), -1).std(-1).view(bw.size(0), 1, 1, 1)
-        # qw is roughly uniform between two high peaks at -1, 1. This is good! Could include graph in paper.
-        # Need to cite matplotlib, though
         qw = WeightQuantize().apply(bw, self.k, self.t, self.w_bits_per_slice)
         # qw = create_weight_sliced_adcless(w, self.w_bits, self.w_bits_per_slice, -(2 ** (self.w_bits - 1)), 2 ** (self.w_bits - 1) -1)
 
@@ -118,17 +107,17 @@ class StoX_Conv2d(nn.Module):
         else:
             # Bit stream [LSB . . . MSB]
             # Size = [batch_size, in_channels * k_h * k_w, p_h * p_w, slices]
-            qa = quantize_STE_ceil(a, self.a_bits)
-            # qa = create_input_stream(a, self.a_bits)  #
+            # qa = quantize_STE_ceil(a, self.a_bits)
+            qa = create_input_stream(a, self.a_bits)  #
             # qa = create_input_stream_adcless(a, self.a_bits, self.a_bits_per_stream, 0, 2 ** self.a_bits - 1)
 
-        # print(tensor_stats(qa), tensor_stats(qw))
         output1 = self.StoX_hardware_Conv(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups)
         # output1 = F.conv2d(qa, qw, None, self.stride, self.padding, self.dilation, self.groups)
         return output1
 
 
 class StoX_Linear(nn.Linear):
+    # NOT IMPLEMENTED
     def __init__(self, in_feat, out_feat):
         super(StoX_Linear, self).__init__(in_feat, out_feat)
 

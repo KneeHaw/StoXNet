@@ -26,8 +26,8 @@ def get_loaders(dataset, batch_size, workers):
             ])),
             batch_size=batch_size, shuffle=False,
             num_workers=workers, pin_memory=True, drop_last=True)
+
     elif dataset == 'CIFAR100':
-        exit()
         normalize = transforms.Normalize(mean=[0.5071, 0.4867, 0.4408],
                                          std=[0.2675, 0.2565, 0.2761])
 
@@ -50,7 +50,6 @@ def get_loaders(dataset, batch_size, workers):
             num_workers=workers, pin_memory=True, drop_last=True)
 
     elif dataset == 'tiny_imagenet':
-        exit()
         tiny_imagenet_normalize = transforms.Normalize([0.4802, 0.4481, 0.3975], [0.2302, 0.2265, 0.2262])
         train_loader = torch.utils.data.DataLoader(
             datasets.ImageFolder(root='./tiny-imagenet-200/train', transform=transforms.Compose([
@@ -69,6 +68,7 @@ def get_loaders(dataset, batch_size, workers):
             ])),
             batch_size=batch_size, shuffle=False,
             num_workers=workers, pin_memory=True, drop_last=True)
+
     elif dataset == 'MNIST':
         train_loader = torch.utils.data.DataLoader(
             datasets.MNIST('./MNIST_Data', train=True, download=True,
@@ -89,6 +89,7 @@ def get_loaders(dataset, batch_size, workers):
                                    (0.1307,), (0.3081,))
                            ])),
             batch_size=batch_size, shuffle=False)
+
     else:
         raise ValueError("Inncorect dataset selection, check paramaeters")
 

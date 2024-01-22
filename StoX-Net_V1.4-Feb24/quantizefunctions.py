@@ -1,5 +1,6 @@
 from torch.autograd import Function
 import torch
+from functionsbase import *
 from debug import tensor_stats
 import time
 
@@ -27,14 +28,12 @@ class WeightQuantize(Function):
     @staticmethod
     def forward(ctx, input_tens, k, t, bits):
         ctx.save_for_backward(input_tens, k, t)
-        magic_number_weights = torch.tensor(2 ** (bits-1), device='cuda')
-        out = input_tens * magic_number_weights
         if bits > 1:
-            out = out.round()
+            exit()
         else:
-            out = torch.where(out < 0, torch.floor(out), out)
+            out = torch.where(input_tens < 0, torch.floor(input_tens), input_tens)
             out = torch.where(out > 0, torch.ceil(out), out)
-        out = torch.clamp(out, -magic_number_weights, magic_number_weights) / magic_number_weights
+        out = torch.clamp(out, -1, 1)
         return out
 
     @staticmethod
@@ -42,6 +41,22 @@ class WeightQuantize(Function):
         input_tens, k, t = ctx.saved_tensors
         grad_input = k * t * (1 - torch.pow(torch.tanh(input_tens * t), 2)) * grad_output
         return grad_input, None, None, None
+
+
+class MTJInstance(Function):
+    @staticmethod
+    def forward(ctx, input_tens, sensitivity):
+        input_tens_tanh = torch.tanh(sensitivity * input_tens)
+        rand_tens = ((2 * torch.rand_like(input_tens_tanh, device='cuda:0')) - 1)
+        mask1 = input_tens_tanh > rand_tens
+        mask2 = input_tens == 0
+        out = 1 * (mask1.type(torch.float32))
+        out = 0 * mask2.type(torch.float32) + out * (1 - mask2.type(torch.float32))  # Is this necessary?
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None
 
 
 def create_input_stream(tensor, bits):  # Takes -1, 1 input and binarizes it accordingly. Should be gradient safe?
@@ -53,24 +68,15 @@ def create_input_stream(tensor, bits):  # Takes -1, 1 input and binarizes it acc
     return bit_stream
 
 
-class adcless_floor_remainder(Function):
-    @staticmethod
-    def forward(ctx, input_tens, number):
-        return torch.remainder(torch.floor(input_tens), number)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output, None
-
-
 def create_input_stream_adcless(tensor, bits, slice_precision, qn, qp):  # LSB to MSB stack dim, takes in int
     bit_stream = []
-    tensor = tensor.clamp(qn, qp)
+    temp_tensor = tensor.clamp(qn, qp)
     for i in range(int(bits / slice_precision)):
-        temp_tensor = tensor / (2 ** slice_precision) ** i
-        temp_tensor = adcless_floor_remainder().apply(temp_tensor, 2 ** slice_precision)
+        temp_tensor = temp_tensor / (2 ** (slice_precision * i))
+        temp_tensor = adcless_floor().apply(temp_tensor)
         bit_stream.append(temp_tensor)
     bit_stream = torch.cat(bit_stream, -1)
+    bit_stream = adcless_remainder().apply(bit_stream, 2 ** slice_precision)
     return bit_stream
 
 
@@ -81,9 +87,10 @@ def create_weight_sliced_adcless(tensor, bits, slice_precision, qn, qp):  # LSB 
     tensor = tensor.abs()
     for i in range(int(bits / slice_precision)):
         temp_tensor = tensor / (2 ** slice_precision) ** i
-        temp_tensor = adcless_floor_remainder().apply(temp_tensor, 2 ** slice_precision)
+        temp_tensor = adcless_floor().apply(temp_tensor, 2 ** slice_precision)
         bit_stream.append(tensor_negatives * temp_tensor)
     bit_stream = torch.cat(bit_stream, 0)
+    bit_stream = adcless_remainder().apply(bit_stream, 2 ** slice_precision)
     return bit_stream
 
 
@@ -99,7 +106,3 @@ def gen_image_vector_and_sum(tensor, bits):
     tensor_sum = torch.stack(torch.split(tensor, bits, dim=-1)) * vector
     tensor_sum = tensor_sum.permute(1, 2, 0, 3).sum(-1)
     return tensor_sum
-
-
-if __name__ == '__main__':
-    pass
