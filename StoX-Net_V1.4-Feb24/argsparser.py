@@ -19,17 +19,17 @@ def get_parser():
                         help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                         help='manual epoch number (useful on restarts)')
-    parser.add_argument('-b', '--batch-size', default=128, type=int,  # use different batch sizes
+    parser.add_argument('-b', '--batch-size', default=128, type=int,
                         metavar='N', help='mini-batch size (default: 128)')
-    parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=0.05, type=float,
                         metavar='LR', help='initial learning rate')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
     parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
                         metavar='W', help='weight decay (default: 1e-4)')
-    parser.add_argument('--print-freq', '-p', default=50, type=int,
+    parser.add_argument('--print-freq', '-p', default=1, type=int,
                         metavar='N', help='print frequency (default: 20)')
-    parser.add_argument('--resume', default='', type=str, metavar='PATH',  # ./save_temp/StoX400BestEpoch_4w4a_AdaptTS1_NoSplit.th
+    parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('-e', '--evaluate', dest='evaluate', default=False,
                         type=bool, help='evaluate model on validation set')
@@ -45,17 +45,19 @@ def get_parser():
                         type=int, default=10)
     parser.add_argument('--time-steps', default=1, type=int, metavar='N',
                         help='Maximum time steps for each MTJ (default: 1)')
-    parser.add_argument('--num-ab', default=4, type=int, metavar='N',
+    parser.add_argument('--num-ab', default=1, type=int, metavar='N',
                         help='Denotes maximum number of activation bits (default: 1)')
-    parser.add_argument('--num-wb', default=4, type=int, metavar='N',
+    parser.add_argument('--num-wb', default=1, type=int, metavar='N',
                         help='Number of weight bits (default: 1)')
     parser.add_argument('--ab-sw', default=1, type=int, metavar='N',
                         help='Number of activation bits per stream (default: 1)')
     parser.add_argument('--wb-sw', default=1, type=int, metavar='N',
                         help='Number of weight bits per slices (default: 1)')
-    parser.add_argument('--subarray-size', default=128, type=int, metavar='N',
+    parser.add_argument('--subarray-size', default=256, type=int, metavar='N',
                         help='Maximum subarray size for partial sums')
     parser.add_argument('--dataset', dest='dataset', help='Choose a dataset to run the network on from'
-                                                          '{MNIST, CIFAR10, CIFAR100, tiny_imagenet}', default='MNIST', type=str)
+                        '{MNIST, CIFAR10, CIFAR100, tiny_imagenet}', default='MNIST', type=str)
+    parser.add_argument('--input-pos-only', default=False, type=bool,
+                        help='Choose whether forward pass activations are positive only')
 
     return parser

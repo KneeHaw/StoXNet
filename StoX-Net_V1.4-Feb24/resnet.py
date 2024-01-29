@@ -73,11 +73,11 @@ class BasicBlock_StoX(nn.Module):
         out = self.conv1(x)
         out = self.bn1(out)
         out += self.shortcut(x)
-        out = x1 = F.relu(out)
+        out = x1 = F.hardtanh(out)
         out = self.conv2(out)
         out = self.bn2(out)
         out = out + x1
-        out = F.relu(out)
+        out = F.hardtanh(out)
         return out
 
 
@@ -108,7 +108,7 @@ class ResNet(nn.Module):
     def forward(self, x):
         out = self.conv1(x)
         out = self.bn1(out)
-        out = F.relu(out)
+        out = F.hardtanh(out)
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
@@ -119,8 +119,8 @@ class ResNet(nn.Module):
         return out
 
 
-def resnet20_1w1a(a_bits, w_bits, a_stream_width, w_slice_width, subarray_size, time_steps):
-    return ResNet(BasicBlock_StoX, [3, 3, 3], stox_params=[a_bits, w_bits, a_stream_width, w_slice_width, subarray_size, time_steps])
+def resnet20_1w1a(stox_params):
+    return ResNet(BasicBlock_StoX, [3, 3, 3], stox_params)
 
 
 def test(net):

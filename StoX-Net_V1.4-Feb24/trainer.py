@@ -32,7 +32,8 @@ def main():
         os.makedirs(args.save_dir)
     print(f"Time for args: {time.time() - start_time}")
 
-    model = resnet.resnet20_1w1a(args.num_ab, args.num_ab, args.ab_sw, args.wb_sw, args.subarray_size, args.time_steps)
+    model = resnet.resnet20_1w1a([args.num_ab, args.num_ab, args.ab_sw, args.wb_sw, args.subarray_size,
+                                  args.time_steps, args.input_pos_only])
     model.to("cuda")
     print(f"Model Loaded: {time.time()-start_time}")
 
@@ -179,9 +180,9 @@ def train(train_loader, model, criterion, optimizer, epoch):
         loss = loss.float()
 
         # measure accuracy and record loss
-        # prec1 = accuracy(output.data, target)[0]
+        prec1 = accuracy(output.data, target)[0]
         losses.update(loss.item(), input.size(0))
-        # top1.update(prec1.item(), input.size(0))
+        top1.update(prec1.item(), input.size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -280,4 +281,5 @@ def accuracy(output, target, topk=(1,)):
 
 
 if __name__ == '__main__':
-    main()
+    with torch.autograd.detect_anomaly():
+        main()
