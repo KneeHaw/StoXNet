@@ -63,6 +63,8 @@ class StoX_Conv2d(nn.Module):
         self.MTJs = nn.ModuleList(StoX_MTJ(out_channels * self.w_slices, self.pos_only) for i in range(self.num_chunks))
         self.MTJ = StoX_MTJ(out_channels * self.w_slices, self.pos_only)
 
+        self.learned_step_size = nn.Parameter(torch.tensor(1.))
+
     def StoX_hardware_Conv(self, image_map, filter_weights, bias, stride, padding, dilation, groups):
         flattened_weights = torch.flatten(filter_weights, 1)
         kernel_list = torch.chunk(image_map, chunks=self.num_chunks, dim=1)
@@ -76,8 +78,8 @@ class StoX_Conv2d(nn.Module):
                 linear_temp = F.linear(working_kernel, working_weight).transpose(1, 2)
                 output += self.MTJ(linear_temp)
 
-        output = output / (self.num_chunks * self.iterations)
-        # output = output
+        # output = output / (self.num_chunks * self.iterations)
+        output = output
 
         # Generate LSB to MSB vectors for S&A
         if self.w_slices > 1:
@@ -105,11 +107,15 @@ class StoX_Conv2d(nn.Module):
         #     """
         # Bit stream [LSB . . . MSB]
         # Size = [batch_size, in_channels * k_h * k_w, p_h * p_w, slices]
+
         # qa = input_stream(a, self.a_bits, self.a_bits_per_stream, 0, 2 ** self.a_bits - 1, self.pos_only)
-        qa = quantize_STE_floor_ceil(a, self.a_bits)
+        # qa = quantize_STE_floor_ceil(a, self.a_bits)
+        qa = quantize_STE_ceil(a, self.a_bits)
+        # qa *= self.learned_step_size
         output1 = self.StoX_hardware_Conv(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups)
         # print(tensor_stats(qa), tensor_stats(qw),tensor_stats(output1))
         # output1 = F.conv2d(qa, qw, None, self.stride, self.padding, self.dilation, self.groups)
+        # print(output1.size())
         return output1
 
 
