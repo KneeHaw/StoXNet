@@ -13,7 +13,6 @@ class MTJInstance(Function):
         else:
             out = (1 * (mask1.type(torch.float32)) - (1 - mask1.type(torch.float32))) * (1 - mask2.type(torch.float32))
 
-        # out = torch.where(input_tens > 0, 1., 0.)
         return out
 
     @staticmethod

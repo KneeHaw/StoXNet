@@ -101,7 +101,7 @@ class StoX_Conv2d(nn.Module):
         qw = WeightQuantize().apply(bw, self.k, self.t, self.w_bits_per_slice)
 
         # Size = [batch_size, in_channels * kern_h * kern_w, pixel_height * pixel_width]
-        a = F.unfold(inputs, self.kernel_size, self.dilation, self.padding, self.stride)
+        a = F.unfold(inputs, self.kernel_size, self.dilation, self.padding, self.stride) / self.learned_step_size
         #     *TODO* Create small "cutoff" point where it should be rounded to zero. Currently is sign function, change
         #     that! There are papers on this "cutoff" point...
         #     """
@@ -111,7 +111,7 @@ class StoX_Conv2d(nn.Module):
         # qa = input_stream(a, self.a_bits, self.a_bits_per_stream, 0, 2 ** self.a_bits - 1, self.pos_only)
         # qa = quantize_STE_floor_ceil(a, self.a_bits)
         qa = quantize_STE_ceil(a, self.a_bits)
-        # qa *= self.learned_step_size
+        qa *= self.learned_step_size
         output1 = self.StoX_hardware_Conv(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups)
         # print(tensor_stats(qa), tensor_stats(qw),tensor_stats(output1))
         # output1 = F.conv2d(qa, qw, None, self.stride, self.padding, self.dilation, self.groups)
