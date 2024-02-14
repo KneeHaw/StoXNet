@@ -45,9 +45,9 @@ def get_parser():
                         type=int, default=10)
     parser.add_argument('--time-steps', default=1, type=int, metavar='N',
                         help='Maximum time steps for each MTJ (default: 1)')
-    parser.add_argument('--num-ab', default=1, type=int, metavar='N',
+    parser.add_argument('--num-ab', default=4, type=int, metavar='N',
                         help='Denotes maximum number of activation bits (default: 1)')
-    parser.add_argument('--num-wb', default=1, type=int, metavar='N',
+    parser.add_argument('--num-wb', default=4, type=int, metavar='N',
                         help='Number of weight bits (default: 1)')
     parser.add_argument('--ab-sw', default=1, type=int, metavar='N',
                         help='Number of activation bits per stream (default: 1)')
@@ -57,7 +57,7 @@ def get_parser():
                         help='Maximum subarray size for partial sums')
     parser.add_argument('--dataset', dest='dataset', help='Choose a dataset to run the network on from'
                         '{MNIST, CIFAR10, CIFAR100, tiny_imagenet}', default='MNIST', type=str)
-    parser.add_argument('--input-pos-only', default=True, type=bool,
+    parser.add_argument('--input-pos-only', default=False, type=bool,
                         help='Choose whether forward pass activations are positive only')
 
     return parser

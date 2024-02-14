@@ -75,11 +75,11 @@ class BasicBlock_StoX(nn.Module):
         shortcut = self.shortcut(x)
         # print(shortcut.size(), out.size(), x.size())
         out += shortcut
-        out = x1 = F.leaky_relu(out)
+        out = x1 = F.hardtanh(out)
         out = self.conv2(out)
         out = self.bn2(out)
         out = out + x1
-        out = F.leaky_relu(out)
+        out = F.hardtanh(out)
         return out
 
 
@@ -110,7 +110,7 @@ class ResNet(nn.Module):
     def forward(self, x):
         out = self.conv1(x)
         out = self.bn1(out)
-        out = F.leaky_relu(out)
+        out = F.hardtanh(out)
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)

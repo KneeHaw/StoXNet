@@ -18,10 +18,26 @@ def quantize_STE_floor_ceil(input_tens, bits):
     return out
 
 
-def quantize_STE_ceil(input_tens, bits):
-    ceil = torch.ceil(input_tens).clamp(0, 2 ** bits - 1)
-    out = torch.where(input_tens == 0, 0, ceil) / (2 ** bits - 1)
+def quantize_STE_round(input_tens, bits):
+    magic_number_input = 2 ** bits - 1
+    out = input_tens + ((input_tens * magic_number_input).round() / magic_number_input).detach() - input_tens.detach()
+    out = torch.clamp(out, -1, 1)
     return out
+
+
+def quantize_STE_ceil(input_tens, bits):
+    out = torch.ceil(input_tens).clamp(0, 2 ** bits - 1)
+    out = torch.where(input_tens == 0, 0, out)
+    return out
+
+
+def quantize_STE(input_tens, bits, pos_only):
+    if pos_only:
+        return torch.ceil(input_tens).clamp(0, 2 ** bits - 1) / (2 ** bits - 1)
+    else:
+        magic_number = 2 ** bits - 1
+        temp = torch.round(input_tens * magic_number) / magic_number
+        return input_tens - input_tens.detach() + temp.clamp(-1, 1).detach()
 
 
 def create_input_stream(tensor, bits):  # Takes -1, 1 input and binarizes it accordingly. Should be gradient safe?
@@ -36,23 +52,25 @@ def create_input_stream(tensor, bits):  # Takes -1, 1 input and binarizes it acc
 def input_stream(tensor, bits, slice_precision, qn, qp, pos_only):  # LSB to MSB stack dim, takes in int
     bit_stream = []
     if pos_only:
-        temp_tensor = torch.ceil(tensor).clamp(qn, qp)
+        temp = torch.ceil(tensor).clamp(qn, qp)
         for i in range(int(bits / slice_precision)):
-            temp_tensor = temp_tensor / (2 ** (slice_precision * i))
-            temp_tensor = torch.floor(temp_tensor)
+            temp_tensor = temp / (2 ** (slice_precision * i))
+            # print((slice_precision * i), temp_tensor)
+            temp_tensor = torch.floor(temp_tensor).fmod(2 ** slice_precision)
+            # print(2 ** slice_precision, temp_tensor)
             bit_stream.append(temp_tensor)
         bit_stream = torch.cat(bit_stream, -1)
         bit_stream = bit_stream.fmod(2 ** slice_precision)
     else:
-        tensor = tensor.clamp(-qp, qp)
-        temp = torch.where(tensor > 0, tensor.ceil(), tensor)
-        temp = torch.where(tensor < 0, temp.floor(), temp)
-        temp = torch.where(tensor == 0, 0, temp)
-        negative_signs = torch.where(tensor < 0, -1, 1)
-        temp = temp.abs()
+        magic_number_input = 2 ** bits - 1
+        temp = torch.round(tensor * magic_number_input).clamp(-qp, qp)
+        # temp = tensor + ((tensor * magic_number_input).round() / magic_number_input).detach() - tensor.detach()
+        # temp = torch.clamp(temp, -1, 1)
+        # temp = temp * magic_number_input
         for i in range(int(bits / slice_precision)):
-            temp = temp / (2 ** (slice_precision * i))
-            temp = negative_signs * torch.floor(temp).fmod(2 ** slice_precision)
-            bit_stream.append(temp)
+            temp1 = temp / (2 ** (slice_precision * i))
+            temp2 = torch.floor(temp1).fmod(2 ** slice_precision)
+            bit_stream.append(temp-temp.detach()+temp2.detach())
         bit_stream = torch.cat(bit_stream, -1)
+
     return bit_stream

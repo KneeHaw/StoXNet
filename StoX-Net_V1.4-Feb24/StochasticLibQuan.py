@@ -21,7 +21,7 @@ class StoX_MTJ(nn.Module):
         # self.scalar = nn.Parameter(torch.tensor(4., device='cuda'), requires_grad=True)
 
     def forward(self, input_tens):
-        normed_input = self.bn(input_tens)
+        normed_input = self.bn(input_tens).clamp(-1, 1)
         out = MTJInstance().apply(normed_input, 4, self.pos_only)
         return out
 
@@ -78,15 +78,14 @@ class StoX_Conv2d(nn.Module):
                 linear_temp = F.linear(working_kernel, working_weight).transpose(1, 2)
                 output += self.MTJ(linear_temp)
 
-        # output = output / (self.num_chunks * self.iterations)
-        output = output
+        output = output / (self.num_chunks * self.iterations)
+        # output = output
 
         # Generate LSB to MSB vectors for S&A
         if self.w_slices > 1:
             output = gen_weight_vector_and_sum(output, self.w_slices)
         if self.a_slices > 1:
-            pass
-            # output = gen_image_vector_and_sum(output, self.a_slices)
+            output = gen_image_vector_and_sum(output, self.a_slices)
 
         out_pixels = int((output.size(dim=-1)) ** 0.5)  # Image size to map back to
         result = F.fold(output, (out_pixels, out_pixels), (1, 1))  # Fold result into image
@@ -101,7 +100,7 @@ class StoX_Conv2d(nn.Module):
         qw = WeightQuantize().apply(bw, self.k, self.t, self.w_bits_per_slice)
 
         # Size = [batch_size, in_channels * kern_h * kern_w, pixel_height * pixel_width]
-        a = F.unfold(inputs, self.kernel_size, self.dilation, self.padding, self.stride) / self.learned_step_size
+        a = F.unfold(inputs, self.kernel_size, self.dilation, self.padding, self.stride)
         #     *TODO* Create small "cutoff" point where it should be rounded to zero. Currently is sign function, change
         #     that! There are papers on this "cutoff" point...
         #     """
@@ -109,10 +108,16 @@ class StoX_Conv2d(nn.Module):
         # Size = [batch_size, in_channels * k_h * k_w, p_h * p_w, slices]
 
         # qa = input_stream(a, self.a_bits, self.a_bits_per_stream, 0, 2 ** self.a_bits - 1, self.pos_only)
-        # qa = quantize_STE_floor_ceil(a, self.a_bits)
-        qa = quantize_STE_ceil(a, self.a_bits)
-        qa *= self.learned_step_size
+        if self.a_bits == 1:
+            qa = quantize_STE_floor_ceil(a, self.a_bits)
+        if (self.a_bits > 1) and (self.a_slices == 1):
+            qa = quantize_STE_round(a, self.a_bits)
+        else:
+            qa = input_stream(a, self.a_bits, self.a_bits_per_stream, 0, 2 ** self.a_bits - 1, self.pos_only)
+        # qa = quantize_STE(a, self.a_bits, self.pos_only) * self.learned_step_size
+        # qa *= self.learned_step_size
         output1 = self.StoX_hardware_Conv(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        # print(tensor_stats(qa), tensor_stats(qw), tensor_stats(output1))
         # print(tensor_stats(qa), tensor_stats(qw),tensor_stats(output1))
         # output1 = F.conv2d(qa, qw, None, self.stride, self.padding, self.dilation, self.groups)
         # print(output1.size())
