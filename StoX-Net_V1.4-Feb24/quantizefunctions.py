@@ -64,13 +64,27 @@ def input_stream(tensor, bits, slice_precision, qn, qp, pos_only):  # LSB to MSB
     else:
         magic_number_input = 2 ** bits - 1
         temp = torch.round(tensor * magic_number_input).clamp(-qp, qp)
-        # temp = tensor + ((tensor * magic_number_input).round() / magic_number_input).detach() - tensor.detach()
-        # temp = torch.clamp(temp, -1, 1)
-        # temp = temp * magic_number_input
         for i in range(int(bits / slice_precision)):
             temp1 = temp / (2 ** (slice_precision * i))
-            temp2 = torch.floor(temp1).fmod(2 ** slice_precision)
-            bit_stream.append(temp-temp.detach()+temp2.detach())
+            temp2 = floor_mod().apply(temp1, 2 ** slice_precision)
+            # temp2 = torch.floor(temp1).fmod(2 ** slice_precision)
+            # bit_stream.append(tensor-tensor.detach()+temp2.detach())
+            bit_stream.append((tensor - tensor.detach()) + temp2.detach())
+            # bit_stream.append(temp2)
+            # Without magic number (tensor grad, temp1 grad
         bit_stream = torch.cat(bit_stream, -1)
 
     return bit_stream
+
+
+class floor_mod(Function):
+    @staticmethod
+    def forward(ctx, input_tens, mod_val):
+
+        out = torch.floor(input_tens).fmod(mod_val)
+
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None

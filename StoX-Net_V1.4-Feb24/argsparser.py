@@ -43,15 +43,15 @@ def get_parser():
     parser.add_argument('--save-every', dest='save_every',
                         help='Saves checkpoints at every specified number of epochs',
                         type=int, default=10)
-    parser.add_argument('--time-steps', default=1, type=int, metavar='N',
+    parser.add_argument('--time-steps', default=4, type=int, metavar='N',
                         help='Maximum time steps for each MTJ (default: 1)')
     parser.add_argument('--num-ab', default=4, type=int, metavar='N',
                         help='Denotes maximum number of activation bits (default: 1)')
     parser.add_argument('--num-wb', default=4, type=int, metavar='N',
                         help='Number of weight bits (default: 1)')
-    parser.add_argument('--ab-sw', default=1, type=int, metavar='N',
+    parser.add_argument('--ab-sw', default=4, type=int, metavar='N',
                         help='Number of activation bits per stream (default: 1)')
-    parser.add_argument('--wb-sw', default=1, type=int, metavar='N',
+    parser.add_argument('--wb-sw', default=4, type=int, metavar='N',
                         help='Number of weight bits per slices (default: 1)')
     parser.add_argument('--subarray-size', default=256, type=int, metavar='N',
                         help='Maximum subarray size for partial sums')

@@ -4,7 +4,8 @@ from functionsbase import *
 class MTJInstance(Function):
     @staticmethod
     def forward(ctx, input_tens, sensitivity, pos_only):
-        input_tens_tanh = torch.tanh(sensitivity * input_tens)
+        # input_tens_tanh = torch.tanh(sensitivity * input_tens)
+        input_tens_tanh = 2 / (1 + torch.e ** (-3.59813326*(input_tens-.00821371))) - 1
         rand_tens = ((2 * torch.rand_like(input_tens_tanh, device='cuda:0')) - 1)
         mask1 = input_tens_tanh > rand_tens
         mask2 = input_tens == 0

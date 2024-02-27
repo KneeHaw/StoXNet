@@ -7,6 +7,7 @@ from WeightQuantization import *
 import random
 from debug import tensor_stats, update_txt, plot_tensor_hist, plot_tensor_plot
 import time
+import random
 
 
 def get_chunks(inc, sub):
@@ -21,7 +22,9 @@ class StoX_MTJ(nn.Module):
         # self.scalar = nn.Parameter(torch.tensor(4., device='cuda'), requires_grad=True)
 
     def forward(self, input_tens):
-        normed_input = self.bn(input_tens).clamp(-1, 1)
+        # normed_input = self.bn(input_tens).clamp(-.9, .9)
+        normed_input = (input_tens / torch.pow(torch.max(input_tens.abs()), 1/2)).clamp(-.8, .8)
+        # print(f"Normed Stats: {tensor_stats(normed_input)}\nInput Stats: {tensor_stats(input_tens)}\nNormed Size: {normed_input.size()}\nInput Size: {input_tens.size()}\n")
         out = MTJInstance().apply(normed_input, 4, self.pos_only)
         return out
 
@@ -65,7 +68,7 @@ class StoX_Conv2d(nn.Module):
 
         self.learned_step_size = nn.Parameter(torch.tensor(1.))
 
-    def StoX_hardware_Conv(self, image_map, filter_weights, bias, stride, padding, dilation, groups):
+    def StoX_hardware_Conv(self, image_map, filter_weights, bias, stride, padding, dilation, groups, grad_only):
         flattened_weights = torch.flatten(filter_weights, 1)
         kernel_list = torch.chunk(image_map, chunks=self.num_chunks, dim=1)
         weight_list = torch.chunk(flattened_weights, chunks=self.num_chunks, dim=1)
@@ -79,7 +82,6 @@ class StoX_Conv2d(nn.Module):
                 output += self.MTJ(linear_temp)
 
         output = output / (self.num_chunks * self.iterations)
-        # output = output
 
         # Generate LSB to MSB vectors for S&A
         if self.w_slices > 1:
@@ -106,22 +108,27 @@ class StoX_Conv2d(nn.Module):
         #     """
         # Bit stream [LSB . . . MSB]
         # Size = [batch_size, in_channels * k_h * k_w, p_h * p_w, slices]
-
+        grad_out = None
         # qa = input_stream(a, self.a_bits, self.a_bits_per_stream, 0, 2 ** self.a_bits - 1, self.pos_only)
         if self.a_bits == 1:
             qa = quantize_STE_floor_ceil(a, self.a_bits)
-        if (self.a_bits > 1) and (self.a_slices == 1):
+        elif (self.a_bits > 1) and (self.a_slices == 1):
             qa = quantize_STE_round(a, self.a_bits)
         else:
+            # qg = quantize_STE_round(a, self.a_bits)
+            # grad_out = self.StoX_hardware_Conv(qg, qw, self.bias, self.stride, self.padding, self.dilation, self.groups, True)
             qa = input_stream(a, self.a_bits, self.a_bits_per_stream, 0, 2 ** self.a_bits - 1, self.pos_only)
+
         # qa = quantize_STE(a, self.a_bits, self.pos_only) * self.learned_step_size
         # qa *= self.learned_step_size
-        output1 = self.StoX_hardware_Conv(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups)
-        # print(tensor_stats(qa), tensor_stats(qw), tensor_stats(output1))
-        # print(tensor_stats(qa), tensor_stats(qw),tensor_stats(output1))
-        # output1 = F.conv2d(qa, qw, None, self.stride, self.padding, self.dilation, self.groups)
-        # print(output1.size())
-        return output1
+        output = self.StoX_hardware_Conv(qa, qw, self.bias, self.stride, self.padding, self.dilation, self.groups, False)
+        if grad_out is None:
+            return output
+        else:
+            # print(grad_out.size(), output.size())
+            exit()
+            # print(tensor_stats(grad_out), tensor_stats(output))
+            # return grad_out - grad_out.detach() + output.detach()
 
 
 class StoX_Linear(nn.Linear):

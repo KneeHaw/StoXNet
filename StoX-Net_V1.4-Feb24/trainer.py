@@ -281,5 +281,4 @@ def accuracy(output, target, topk=(1,)):
 
 
 if __name__ == '__main__':
-    with torch.autograd.detect_anomaly():
-        main()
+    main()
